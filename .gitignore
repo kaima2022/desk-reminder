@@ -17,11 +17,3 @@ Thumbs.db
 src-tauri/target/
 
 *.docx
-
-# 忽略所有图标文件，但保留 icon.ico
-src-tauri/icons/*
-!src-tauri/icons/icon.ico
-
-# 如果存在子目录，也需要排除
-src-tauri/icons/*/
-!src-tauri/icons/icon.ico
