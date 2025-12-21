@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Health-Reminder",
+  "productName": "health-reminder",
   "version": "1.4.2",
   "identifier": "com.healthreminder.app",
   "build": {
