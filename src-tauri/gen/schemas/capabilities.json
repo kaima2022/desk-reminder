@@ -1,1 +1,0 @@
-{"main-capability":{"identifier":"main-capability","description":"Capability for the main window","local":true,"windows":["main"],"permissions":["core:default","notification:default","autostart:default","shell:default"]}}
