@@ -1,0 +1,4 @@
+# GitHub Actions specific files
+action.yml
+action.yml.md
+action.yml.d/

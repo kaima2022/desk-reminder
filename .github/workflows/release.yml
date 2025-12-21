@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            # 占位符，实际文件由构建工作流上传
+          name: Health Reminder v${{ github.ref_name }}
+          body: |
+            ## 健康提醒助手 v${{ github.ref_name }}
+
+            ### 🎯 主要更新
+            - **本地化完善**：完成中文本地化内容，提供更友好的用户体验
+            - **自启动集成**：集成开机自启动插件，实现一键开启随心启动功能
+            - **Bug 修复**：修复若干bug，包括CMD窗口闪动问题
+            - **跨平台支持**：新增 macOS 和 Linux 平台支持
+
+            ### 💻 下载安装包
+
+            #### Windows
+            - `Health-Reminder-1.4.0-Windows.msi` - 标准安装程序
+            - `Health-Reminder-1.4.0-Windows-setup.exe` - NSIS 安装程序
+
+            #### macOS
+            - `Health-Reminder-1.4.0.dmg` - macOS 磁盘映像文件
+
+            #### Linux
+            - `Health-Reminder-1.4.0.AppImage` - 通用可执行文件
+            - `Health-Reminder-1.4.0.deb` - Debian/Ubuntu 包
+
+            ### 📋 系统要求
+            - Windows 10/11
+            - macOS 10.15+
+            - Linux (Ubuntu 18.04+)
+            - 支持自动更新和开机自启
+            - 极低内存占用，基于 Rust + Tauri 技术
+
+            ### 🚀 快速开始
+            1. 下载对应平台的安装包
+            2. 运行安装程序
+            3. 启动应用程序，开始健康提醒之旅
+
+            ---
+            🚀 感谢您使用健康提醒助手！愿您每天都有好身体。
+
+            [GitHub 仓库地址](https://github.com/${{ github.repository }})
+            [使用文档](https://github.com/${{ github.repository }/blob/main/README.md)
+
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,7 +2,7 @@
 
 > **极简、精准、高效。为现代办公族量身定制的健康守护小程序。**
 
-[![Platform](https://img.shields.io/badge/Platform-Windows-blue?style=flat-square)](https://tauri.app/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-1.4.0-orange?style=flat-square)](https://github.com/)
 
@@ -75,8 +75,13 @@ npm run tauri dev
 
 ### 构建正式版本
 ```bash
-# 构建 Windows 安装程序
+# 构建所有平台
 npm run tauri build
+
+# 构建特定平台
+npm run tauri build -- --target nsis    # Windows
+npm run tauri build -- --target dmg     # macOS
+npm run tauri build -- --target appimage # Linux
 ```
 
 ---

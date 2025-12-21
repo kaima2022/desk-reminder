@@ -1,0 +1,132 @@
+name: Build Multi-Platform
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: desk-reminder
+            asset_name: Health-Reminder-1.4.0
+            binary_ext: AppImage
+            bundle_ext: deb
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: desk-reminder
+            asset_name: Health-Reminder-1.4.0
+            binary_ext: app
+            bundle_ext: dmg
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: desk-reminder
+            asset_name: Health-Reminder-1.4.0-Windows
+            binary_ext: exe
+            bundle_ext: msi
+
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies (ubuntu only)
+      if: matrix.platform == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        sudo apt-get install -y libayatana-appindicator3-dev
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Rust Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Build Tauri app
+      uses: tauri-apps/tauri-action@v0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tagName: ${{ github.ref_name }}
+        releaseName: 'Health Reminder v1.4.0'
+        releaseBody: |
+          ## 健康提醒助手 v1.4.0
+
+          ### 🎯 主要更新
+          - **本地化完善**：完成中文本地化内容，提供更友好的用户体验
+          - **自启动集成**：集成开机自启动插件，实现一键开启随心启动功能
+          - **Bug 修复**：修复若干bug，包括CMD窗口闪动问题
+          - **跨平台支持**：新增 macOS 和 Linux 平台支持
+
+          ### 💻 安装方式
+          根据您的操作系统下载对应的安装包：
+
+          #### Windows
+          - `Health-Reminder-1.4.0-Windows.msi` - 标准安装程序
+          - `Health-Reminder-1.4.0-Windows-setup.exe` - NSIS 安装程序
+
+          #### macOS
+          - `Health-Reminder-1.4.0.dmg` - macOS 磁盘映像文件
+
+          #### Linux
+          - `Health-Reminder-1.4.0.AppImage` - 通用可执行文件
+          - `Health-Reminder-1.4.0.deb` - Debian/Ubuntu 包
+
+          ### 📋 系统要求
+          - Windows 10/11
+          - macOS 10.15+
+          - Linux (Ubuntu 18.04+)
+          - 支持自动更新和开机自启
+          - 极低内存占用，基于 Rust + Tauri 技术
+
+          ---
+          🚀 感谢您使用健康提醒助手！愿您每天都有好身体。
+        releaseDraft: false
+        prerelease: false
+        args: >
+          --target ${{ matrix.target }}
+          --config-path src-tauri/tauri.conf.json
+
+    - name: Upload artifacts
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}-${{ matrix.bundle_ext }}
+        path: |
+          src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_ext }}/
+          src-tauri/target/${{ matrix.target }}/release/bundle/nsis/

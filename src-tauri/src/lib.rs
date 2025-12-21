@@ -32,8 +32,7 @@ fn play_notification_sound() {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        use std::os::windows::process::CommandExt; // 导入 Windows 特定的 trait
-        // 使用 PowerShell 但完全隐藏窗口，避免闪现
+        use std::os::windows::process::CommandExt;
         let _ = Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -42,8 +41,36 @@ fn play_notification_sound() {
                 "-Command",
                 "Add-Type -AssemblyName System.Sound; [System.Media.SystemSounds]::Beep.Play();"
             ])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW 标志
+            .creation_flags(0x08000000)
             .output();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let _ = Command::new("afplay")
+            .args(["/System/Library/Sounds/Glass.aiff"])
+            .output();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        // 尝试多种 Linux 系统声音命令
+        if Command::new("paplay")
+            .args(["/usr/share/sounds/alsa/Front_Left.wav"])
+            .output().is_ok() {
+            return;
+        }
+
+        if Command::new("aplay")
+            .args(["/usr/share/sounds/alsa/Front_Left.wav"])
+            .output().is_ok() {
+            return;
+        }
+
+        // 最后尝试系统提示音
+        let _ = Command::new("echo").args(["\u{0007}"]).output();
     }
 }
 
@@ -67,7 +94,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--silent"])))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--silent"])
+        ))
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
