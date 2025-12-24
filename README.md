@@ -74,6 +74,8 @@
 
 ## 📦 下载与安装
 
+### 安装包
+
 您可以直接前往 [GitHub Releases](https://github.com/kaima2022/desk-reminder/releases) 页面下载适用于您系统的最新版安装包。支持 Windows (.exe), macOS (.dmg), 以及 Linux (.deb, .AppImage)。
 
 ### Windows Scoop 安装
@@ -88,6 +90,9 @@ scoop install health-reminder
 # 更新
 scoop update health-reminder
 ```
+
+<img width="1025" height="245" alt="image" src="https://github.com/user-attachments/assets/11282b88-4665-4374-9de8-54bdcec27e7f" />
+
 
 ---
 
