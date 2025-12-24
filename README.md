@@ -4,7 +4,7 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.4.7-orange?style=flat-square)](https://github.com/)
+[![Version](https://img.shields.io/badge/Version-1.4.8-orange?style=flat-square)](https://github.com/)
 
 在快节奏的数字时代，健康的身体是高效生产力的基石。**健康办公助手** 是一款基于 Rust 与 Tauri 开发的高性能桌面应用，旨在通过智能化的任务排程与多维提醒，帮助你在专注工作的同时，科学地进行久坐、补水与用眼休息。
 
@@ -76,6 +76,19 @@
 
 您可以直接前往 [GitHub Releases](https://github.com/kaima2022/desk-reminder/releases) 页面下载适用于您系统的最新版安装包。支持 Windows (.exe), macOS (.dmg), 以及 Linux (.deb, .AppImage)。
 
+### Windows Scoop 安装
+
+```powershell
+# 添加 bucket（首次安装）
+scoop bucket add desk-reminder https://github.com/kaima2022/desk-reminder
+
+# 安装
+scoop install health-reminder
+
+# 更新
+scoop update health-reminder
+```
+
 ---
 
 ## 🛠️ 从代码构建
@@ -108,6 +121,12 @@ npm run tauri build
 ## 📜 版本记录
 
 > **请下载最新安装包重新安装（会自动覆盖）**
+
+### v1.4.8 (2025-12-24)
+- **多屏锁屏适配**：锁屏时覆盖所有显示器，防止在副屏继续工作。
+- **手动确认完成**：锁屏倒计时结束后需手动点击确认是否完成休息。
+- **自动最小化**：锁屏结束后软件自动最小化到托盘。
+- **Scoop 安装支持**：Windows 用户可通过 Scoop 包管理器安装和更新。
 
 ### v1.4.7 (2025-12-23)
 - **强制休息锁屏**：新增锁屏功能，提醒触发时全屏锁定，确保真正休息。

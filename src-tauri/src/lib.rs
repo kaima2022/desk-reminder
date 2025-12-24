@@ -4,11 +4,21 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent, TrayIcon},
-    Manager, WindowEvent, State, Emitter,
+    Manager, WindowEvent, State, Emitter, WebviewWindowBuilder, WebviewUrl,
 };
 use tauri_plugin_notification::NotificationExt;
+use url::form_urlencoded;
 
 struct TrayState(Mutex<Option<TrayIcon>>);
+struct LockState(Mutex<Vec<String>>);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct LockTaskArgs {
+    title: String,
+    desc: String,
+    duration: i32,
+    icon: String,
+}
 
 fn get_settings_path() -> PathBuf {
     let config_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -101,19 +111,79 @@ fn update_tray_tooltip(state: State<TrayState>, tooltip: String) {
 }
 
 #[tauri::command]
-fn enter_lock_mode(window: tauri::Window) {
+async fn enter_lock_mode(app: tauri::AppHandle, window: tauri::Window, state: State<'_, LockState>, task: Option<LockTaskArgs>) -> Result<(), String> {
     let _ = window.set_fullscreen(true);
     let _ = window.set_always_on_top(true);
     let _ = window.set_closable(false);
     let _ = window.set_minimizable(false);
+    let _ = window.set_focus();
+
+    let monitors = window.available_monitors().unwrap_or_default();
+    let current_monitor = window.current_monitor().unwrap_or(None);
+    
+    let mut created_windows = Vec::new();
+    
+    for (i, m) in monitors.iter().enumerate() {
+        if let Some(ref cm) = current_monitor {
+             // Basic position check to assume it's the same monitor
+             if m.position().x == cm.position().x && m.position().y == cm.position().y {
+                 continue;
+             }
+        }
+
+        let label = format!("lock-slave-{}", i);
+        
+        let mut url_str = String::from("index.html?mode=lock_slave");
+        if let Some(ref t) = task {
+             let encoded: String = form_urlencoded::Serializer::new(String::new())
+                .append_pair("title", &t.title)
+                .append_pair("desc", &t.desc)
+                .append_pair("duration", &t.duration.to_string())
+                .append_pair("icon", &t.icon)
+                .finish();
+             url_str = format!("index.html?mode=lock_slave&{}", encoded);
+        }
+
+        if let Ok(slave) = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(PathBuf::from(url_str)))
+            .title("Lock Screen")
+            .always_on_top(true)
+            .closable(false)
+            .minimizable(false)
+            .decorations(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .visible(false)
+            .build() {
+                
+            let _ = slave.set_position(m.position().clone());
+            let _ = slave.set_size(tauri::Size::Physical(m.size().clone()));
+            let _ = slave.show();
+            let _ = slave.set_focus();
+            let _ = slave.set_fullscreen(true);
+            created_windows.push(label);
+        }
+    }
+    
+    let mut state_guard = state.0.lock().unwrap();
+    state_guard.extend(created_windows);
+
+    Ok(())
 }
 
 #[tauri::command]
-fn exit_lock_mode(window: tauri::Window) {
+fn exit_lock_mode(app: tauri::AppHandle, window: tauri::Window, state: State<LockState>) {
     let _ = window.set_fullscreen(false);
     let _ = window.set_always_on_top(false);
     let _ = window.set_closable(true);
     let _ = window.set_minimizable(true);
+
+    let mut state_guard = state.0.lock().unwrap();
+    for label in state_guard.iter() {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    state_guard.clear();
 }
 
 pub fn run() {
@@ -135,6 +205,7 @@ pub fn run() {
             exit_lock_mode,
         ])
         .manage(TrayState(Mutex::new(None)))
+        .manage(LockState(Mutex::new(Vec::new())))
         .setup(|app| {
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
@@ -183,8 +254,13 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                // If the window is a lock slave, just close it (don't prevent close)
+                // The label check: main window has label "main" (default).
+                // Slave windows have "lock-slave-X".
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

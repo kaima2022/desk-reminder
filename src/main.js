@@ -49,6 +49,45 @@ let lockScreenState = {
 }; 
 
 async function init() {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mode') === 'lock_slave') {
+    const task = {
+      title: urlParams.get('title') || '休息时间',
+      desc: urlParams.get('desc') || '让眼睛休息一下',
+      icon: urlParams.get('icon') || 'eye',
+      id: 'slave_lock'
+    };
+    const duration = parseInt(urlParams.get('duration') || '10');
+    
+    settings.lockDuration = duration;
+    
+    lockScreenState = {
+      active: true,
+      remaining: duration,
+      task: task,
+      unlockProgress: 0,
+      unlockTimer: null,
+    };
+    
+    renderFullUI();
+    
+    // 隐藏从属屏幕的解锁按钮
+    setTimeout(() => {
+      const btn = document.querySelector('.unlock-btn');
+      if (btn) btn.style.display = 'none';
+    }, 0);
+
+    const lockInterval = setInterval(() => {
+      lockScreenState.remaining--;
+      updateLockScreenTimer();
+      if (lockScreenState.remaining <= 0) {
+        clearInterval(lockInterval);
+      }
+    }, 1000);
+
+    return;
+  }
+
   await loadSettings();
   
   try {
@@ -154,7 +193,14 @@ async function startLockScreen(task) {
   
   try {
     await invoke('show_main_window');
-    await invoke('enter_lock_mode');
+    await invoke('enter_lock_mode', {
+      task: {
+        title: task.title,
+        desc: task.desc,
+        duration: settings.lockDuration,
+        icon: task.icon
+      }
+    });
   } catch (e) {
     console.error('Failed to enter lock mode', e);
   }
