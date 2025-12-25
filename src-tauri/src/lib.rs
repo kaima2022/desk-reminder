@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 struct TrayState(Mutex<Option<TrayIcon>>);
 struct LockState(Mutex<Vec<String>>);
+struct PauseMenuState(Mutex<Option<MenuItem<tauri::Wry>>>);
 
 #[cfg(target_os = "windows")]
 static SYSTEM_LOCKED: AtomicBool = AtomicBool::new(false);
@@ -198,6 +199,14 @@ fn update_tray_tooltip(state: State<TrayState>, tooltip: String) {
 }
 
 #[tauri::command]
+fn update_pause_menu(state: State<PauseMenuState>, paused: bool) {
+    if let Some(menu_item) = state.0.lock().unwrap().as_ref() {
+        let text = if paused { "继续" } else { "暂停" };
+        let _ = menu_item.set_text(text);
+    }
+}
+
+#[tauri::command]
 async fn enter_lock_mode(app: tauri::AppHandle, window: tauri::Window, state: State<'_, LockState>, task: Option<LockTaskArgs>) -> Result<(), String> {
     let _ = window.set_fullscreen(true);
     let _ = window.set_always_on_top(true);
@@ -289,16 +298,18 @@ pub fn run() {
             show_main_window,
             hide_main_window,
             update_tray_tooltip,
+            update_pause_menu,
             enter_lock_mode,
             exit_lock_mode,
         ])
         .manage(TrayState(Mutex::new(None)))
         .manage(LockState(Mutex::new(Vec::new())))
+        .manage(PauseMenuState(Mutex::new(None)))
         .setup(|app| {
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let reset = MenuItem::with_id(app, "reset", "重置所有任务", true, None::<&str>)?;
-            let pause = MenuItem::with_id(app, "pause", "暂停/继续", true, None::<&str>)?;
+            let pause = MenuItem::with_id(app, "pause", "暂停", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &pause, &reset, &quit])?;
             
             let tray = TrayIconBuilder::new()
@@ -341,6 +352,7 @@ pub fn run() {
                 .build(app)?;
             
             *app.state::<TrayState>().0.lock().unwrap() = Some(tray);
+            *app.state::<PauseMenuState>().0.lock().unwrap() = Some(pause);
             
             #[cfg(target_os = "windows")]
             start_session_monitor(app.handle().clone());

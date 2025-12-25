@@ -359,6 +359,7 @@ function updateTask(id, updates) {
 
 function togglePause() {
   isPaused = !isPaused;
+  invoke('update_pause_menu', { paused: isPaused }).catch(() => {});
   renderFullUI();
 }
 
