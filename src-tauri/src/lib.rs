@@ -43,6 +43,7 @@ struct TimerState {
     pause_start: Option<Instant>,
     system_locked: bool,
     lock_screen_active: bool,
+    lock_screen_start: Option<Instant>,  // 锁屏开始时间，用于补偿
 }
 
 impl TimerState {
@@ -53,6 +54,7 @@ impl TimerState {
             pause_start: None,
             system_locked: false,
             lock_screen_active: false,
+            lock_screen_start: None,
         }
     }
 }
@@ -344,7 +346,21 @@ fn timer_set_system_locked(locked: bool) {
 #[tauri::command]
 fn timer_set_lock_screen_active(active: bool) {
     let mut state = get_timer_state().lock().unwrap();
-    state.lock_screen_active = active;
+    if active && !state.lock_screen_active {
+        // 刚进入锁屏模式，记录开始时间
+        state.lock_screen_active = true;
+        state.lock_screen_start = Some(Instant::now());
+    } else if !active && state.lock_screen_active {
+        // 退出锁屏模式，补偿锁屏期间的时间
+        if let Some(lock_start) = state.lock_screen_start {
+            let lock_duration = lock_start.elapsed();
+            for timer in state.tasks.values_mut() {
+                timer.reset_time += lock_duration;
+            }
+        }
+        state.lock_screen_active = false;
+        state.lock_screen_start = None;
+    }
 }
 
 fn start_timer_thread(app_handle: AppHandle) {

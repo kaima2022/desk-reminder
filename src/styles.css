@@ -672,14 +672,16 @@ body {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .duration-btn {
-  padding: 6px 12px;
+  padding: 4px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s;

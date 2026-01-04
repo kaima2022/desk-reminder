@@ -30,7 +30,7 @@ let settings = {
   soundEnabled: true,
   autoStart: false,
   lockScreenEnabled: false,
-  lockDuration: 10,
+  lockDuration: 20,
 };
 
 let countdowns = {};  // 现在由后端事件更新
@@ -363,12 +363,22 @@ async function endLockScreen() {
 
 function updateLockScreenTimer() {
   const secondsEl = document.querySelector('.lock-seconds');
+  const unitEl = document.querySelector('.lock-unit');
   const progressEl = document.querySelector('.lock-timer-ring .progress');
-  
+
   if (secondsEl) {
-    secondsEl.textContent = lockScreenState.remaining;
+    const remaining = lockScreenState.remaining;
+    if (remaining >= 60) {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      secondsEl.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+      if (unitEl) unitEl.textContent = '分钟';
+    } else {
+      secondsEl.textContent = remaining;
+      if (unitEl) unitEl.textContent = '秒';
+    }
   }
-  
+
   if (progressEl) {
     const total = settings.lockDuration;
     const offset = 565 * (1 - lockScreenState.remaining / total);
@@ -487,6 +497,15 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatLockTime(seconds) {
+  if (seconds >= 60) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return { time: `${mins}:${String(secs).padStart(2, '0')}`, unit: '分钟' };
+  }
+  return { time: seconds, unit: '秒' };
 }
 
 function updateTrayTooltip() {
@@ -621,9 +640,11 @@ function renderFullUI() {
       <div class="setting-row" style="${settings.lockScreenEnabled ? '' : 'opacity:0.5; pointer-events:none;'}">
         <label>锁屏时长</label>
         <div class="duration-select">
-          <button class="duration-btn ${settings.lockDuration === 10 ? 'active' : ''}" data-duration="10">10秒</button>
           <button class="duration-btn ${settings.lockDuration === 20 ? 'active' : ''}" data-duration="20">20秒</button>
           <button class="duration-btn ${settings.lockDuration === 30 ? 'active' : ''}" data-duration="30">30秒</button>
+          <button class="duration-btn ${settings.lockDuration === 60 ? 'active' : ''}" data-duration="60">1分钟</button>
+          <button class="duration-btn ${settings.lockDuration === 300 ? 'active' : ''}" data-duration="300">5分钟</button>
+          <button class="duration-btn ${settings.lockDuration === 600 ? 'active' : ''}" data-duration="600">10分钟</button>
         </div>
       </div>
       <div class="setting-row">
@@ -684,8 +705,8 @@ function renderFullUI() {
           </svg>
           <div class="center-content">
             <div class="lock-icon">${lockScreenState.task ? (ICONS[lockScreenState.task.icon] || ICONS.bell) : ICONS.eye}</div>
-            <div class="lock-seconds">${lockScreenState.waitingConfirm ? '✓' : lockScreenState.remaining}</div>
-            <div class="lock-unit">${lockScreenState.waitingConfirm ? '完成' : '秒'}</div>
+            <div class="lock-seconds">${lockScreenState.waitingConfirm ? '✓' : formatLockTime(lockScreenState.remaining).time}</div>
+            <div class="lock-unit">${lockScreenState.waitingConfirm ? '完成' : formatLockTime(lockScreenState.remaining).unit}</div>
           </div>
         </div>
         <div class="lock-title">${lockScreenState.waitingConfirm ? '休息时间到！' : (lockScreenState.task?.title || '休息时间')}</div>
