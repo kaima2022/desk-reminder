@@ -166,6 +166,18 @@ body {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
 }
 
+.reminder-card.snoozed {
+  border-left: 4px solid var(--warning);
+}
+
+.reminder-card.snoozed .progress-mini .progress {
+  stroke: var(--warning);
+}
+
+.reminder-card.snoozed .time-remaining::before {
+  content: '💤 ';
+}
+
 .card-main {
   display: flex;
   align-items: center;

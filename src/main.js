@@ -35,9 +35,11 @@ let settings = {
   autoUnlock: true,    // 倒计时结束自动解锁
   preNotificationSeconds: 30, // 锁屏/提醒前预告时间（秒）
   strictMode: false,   // 严格模式：隐藏紧急解锁按钮
+  snoozeMinutes: 5,    // 推迟时间（分钟）
 };
 
 let countdowns = {};  // 现在由后端事件更新
+let snoozedStatus = {}; // 推迟状态
 let stats = {
   sitBreaks: 0,
   waterCups: 0,
@@ -47,6 +49,7 @@ let isPaused = false;
 let isIdle = false;  // 当前是否处于空闲状态
 let workStartTime = Date.now();
 let activePopup = null;
+let taskQueue = []; // 任务队列
 let lockScreenState = {
   active: false,
   remaining: 0,
@@ -150,6 +153,7 @@ async function init() {
     const updates = event.payload;
     updates.forEach(info => {
       countdowns[info.id] = info.remaining;
+      snoozedStatus[info.id] = info.snoozed;
       
       // 预提醒逻辑
       if (info.enabled && !isIdle && !isPaused && settings.preNotificationSeconds > 0 && info.remaining === settings.preNotificationSeconds) {
@@ -170,7 +174,15 @@ async function init() {
     const task = event.payload;
     // 找到完整的任务配置
     const fullTask = settings.tasks.find(t => t.id === task.id) || task;
-    await triggerNotification(fullTask);
+    
+    if (activePopup || lockScreenState.active) {
+      // 如果当前已有弹窗或锁屏，加入队列
+      if (!taskQueue.find(t => t.id === fullTask.id)) {
+        taskQueue.push(fullTask);
+      }
+    } else {
+      await triggerNotification(fullTask);
+    }
   });
 
   // 监听空闲状态变化
@@ -407,7 +419,7 @@ async function endLockScreen(snoozed = false) {
     console.error('Failed to exit lock mode', e);
   }
 
-  renderFullUI();
+  processNextTask();
 }
 
 function updateLockScreenTimer() {
@@ -474,6 +486,15 @@ function cancelUnlockPress() {
   if (progressBar) progressBar.style.width = '0';
 }
 
+function processNextTask() {
+  if (taskQueue.length > 0 && !activePopup && !lockScreenState.active) {
+    const nextTask = taskQueue.shift();
+    triggerNotification(nextTask);
+  } else {
+    renderFullUI();
+  }
+}
+
 function dismissNotification() {
   if (!activePopup) return;
   
@@ -484,7 +505,7 @@ function dismissNotification() {
   
   activePopup = null;
   saveStats();
-  renderFullUI();
+  processNextTask();
 }
 
 function addTask() {
@@ -650,8 +671,10 @@ function renderFullUI() {
     </div>
 
     <div class="reminder-cards">
-      ${settings.tasks.map(task => `
-        <div class="reminder-card" data-id="${task.id}">
+      ${settings.tasks.map(task => {
+        const isSnoozed = snoozedStatus[task.id];
+        return `
+        <div class="reminder-card ${isSnoozed ? 'snoozed' : ''}" data-id="${task.id}">
           <div class="card-main">
             <div class="progress-mini" style="cursor:pointer;" title="点击重置" data-reset-id="${task.id}">
               <svg width="44" height="44" viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="20" /><circle class="progress" cx="22" cy="22" r="20" stroke-dasharray="126" stroke-dashoffset="126" /></svg>
@@ -685,7 +708,8 @@ function renderFullUI() {
           </div>
           ` : ''}
         </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>
 
     <button class="add-task-btn" id="addTaskBtn">${ICONS.plus} 添加自定义提醒</button>
@@ -739,6 +763,16 @@ function renderFullUI() {
         </div>
       </div>
       <div class="setting-row">
+        <div class="setting-info">
+          <label>推迟时间</label>
+          <span class="setting-desc">点击“推迟”按钮时延后的分钟数</span>
+        </div>
+        <div class="idle-threshold-input-group">
+          <input type="number" class="idle-threshold-input" id="snoozeTimeInput" value="${settings.snoozeMinutes}" min="1" max="60">
+          <span class="input-unit">分钟</span>
+        </div>
+      </div>
+      <div class="setting-row">
         <label>提示音</label>
         <div style="display:flex; gap:12px; align-items:center;">
           <button class="preset-btn" id="testSoundBtn" style="padding:4px 8px; display:flex; gap:4px; align-items:center;">${ICONS.volume} 测试</button>
@@ -776,7 +810,7 @@ function renderFullUI() {
         <p>${activePopup ? activePopup.desc : ''}</p>
         <div style="display:flex; justify-content:center; gap:10px;">
           <button class="btn btn-primary" id="dismissBtn">我知道了</button>
-          <button class="btn btn-secondary" id="popupSnoozeBtn">推迟 5 分钟</button>
+          <button class="btn btn-secondary" id="popupSnoozeBtn">推迟 ${settings.snoozeMinutes} 分钟</button>
         </div>
       </div>
     </div>
@@ -819,7 +853,7 @@ function renderFullUI() {
           </div>
         </button>
         <button id="lockSnoozeBtn" style="margin-top:15px; background:rgba(255,255,255,0.2); border:none; padding:8px 16px; border-radius:20px; color:white; font-size:14px; cursor:pointer;">
-          💤 推迟 5 分钟
+          💤 推迟 ${settings.snoozeMinutes} 分钟
         </button>
         `)}
       </div>
@@ -968,12 +1002,12 @@ function bindEvents() {
   
   const popupSnoozeBtn = document.getElementById('popupSnoozeBtn');
   if (popupSnoozeBtn) {
-    popupSnoozeBtn.onclick = () => snoozeTask(5);
+    popupSnoozeBtn.onclick = () => snoozeTask(settings.snoozeMinutes);
   }
 
   const lockSnoozeBtn = document.getElementById('lockSnoozeBtn');
   if (lockSnoozeBtn) {
-    lockSnoozeBtn.addEventListener('click', () => snoozeTask(5));
+    lockSnoozeBtn.addEventListener('click', () => snoozeTask(settings.snoozeMinutes));
   }
   
   document.getElementById('testSoundBtn').onclick = () => {
@@ -1035,6 +1069,18 @@ function bindEvents() {
       if (seconds >= 0 && seconds <= 120) {
         settings.preNotificationSeconds = seconds;
         saveSettings();
+      }
+    });
+  }
+
+  const snoozeTimeInput = document.getElementById('snoozeTimeInput');
+  if (snoozeTimeInput) {
+    snoozeTimeInput.addEventListener('input', (e) => {
+      const minutes = parseInt(e.target.value);
+      if (minutes >= 1 && minutes <= 60) {
+        settings.snoozeMinutes = minutes;
+        saveSettings();
+        renderFullUI(); // 更新按钮文字
       }
     });
   }

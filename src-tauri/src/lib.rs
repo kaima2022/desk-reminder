@@ -146,6 +146,7 @@ struct TaskTimer {
     reset_time: Instant,
     triggered: bool,  // 本轮是否已触发
     disabled_at: Option<Instant>,  // 禁用时的时间点，用于计算暂停时长
+    snoozed: bool, // 是否处于推迟状态
 }
 
 struct TimerState {
@@ -278,6 +279,7 @@ struct CountdownInfo {
     remaining: u64,  // 剩余秒数
     total: u64,      // 总秒数
     enabled: bool,
+    snoozed: bool,   // 是否推迟中
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -312,6 +314,7 @@ fn sync_tasks(tasks: Vec<TaskConfig>) {
                     reset_time: now,
                     triggered: false,
                     disabled_at: None,
+                    snoozed: false,
                 });
             } else if was_disabled && is_now_enabled {
                 // 从禁用变为启用，补偿禁用期间的时间
@@ -325,6 +328,7 @@ fn sync_tasks(tasks: Vec<TaskConfig>) {
                     reset_time: new_reset_time,
                     triggered: existing.triggered,
                     disabled_at: None,
+                    snoozed: existing.snoozed,
                 });
             } else if was_enabled && is_now_disabled {
                 // 从启用变为禁用，记录禁用时间点
@@ -333,6 +337,7 @@ fn sync_tasks(tasks: Vec<TaskConfig>) {
                     reset_time: existing.reset_time,
                     triggered: existing.triggered,
                     disabled_at: Some(now),
+                    snoozed: existing.snoozed,
                 });
             } else {
                 // 状态没变，保留
@@ -341,6 +346,7 @@ fn sync_tasks(tasks: Vec<TaskConfig>) {
                     reset_time: existing.reset_time,
                     triggered: existing.triggered,
                     disabled_at: existing.disabled_at,
+                    snoozed: existing.snoozed,
                 });
             }
         } else {
@@ -350,6 +356,7 @@ fn sync_tasks(tasks: Vec<TaskConfig>) {
                 reset_time: now,
                 triggered: false,
                 disabled_at: if task.enabled { None } else { Some(now) },
+                snoozed: false,
             });
         }
     }
@@ -421,6 +428,7 @@ fn timer_snooze_task(task_id: String, minutes: u64) {
         // 我们只需调整 reset_time，主循环会自动计算剩余时间
         // 但需要把 triggered 设为 false，否则主循环会认为它还在触发状态
         timer.triggered = false;
+        timer.snoozed = true;
     }
 }
 
@@ -447,6 +455,7 @@ fn get_countdowns() -> Vec<CountdownInfo> {
             remaining,
             total: total_secs,
             enabled: timer.config.enabled,
+            snoozed: timer.snoozed,
         }
     }).collect()
 }
@@ -611,6 +620,7 @@ fn start_timer_thread(app_handle: AppHandle) {
                             // 重置计时，开始下一轮
                             timer.reset_time = now;
                             timer.triggered = false;
+                            timer.snoozed = false;
                         }
                     }
                 }
