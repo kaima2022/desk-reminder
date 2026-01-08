@@ -32,6 +32,9 @@ let settings = {
   lockScreenEnabled: false,
   lockDuration: 20,
   idleThreshold: 300,  // 空闲阈值，秒，默认 5 分钟
+  autoUnlock: true,    // 倒计时结束自动解锁
+  preNotificationSeconds: 30, // 锁屏/提醒前预告时间（秒）
+  strictMode: false,   // 严格模式：隐藏紧急解锁按钮
 };
 
 let countdowns = {};  // 现在由后端事件更新
@@ -147,6 +150,17 @@ async function init() {
     const updates = event.payload;
     updates.forEach(info => {
       countdowns[info.id] = info.remaining;
+      
+      // 预提醒逻辑
+      if (info.enabled && !isIdle && !isPaused && settings.preNotificationSeconds > 0 && info.remaining === settings.preNotificationSeconds) {
+        const task = settings.tasks.find(t => t.id === info.id);
+        if (task) {
+           invoke('show_notification', { 
+             title: `即将提醒：${task.title}`, 
+             body: `还有 ${settings.preNotificationSeconds} 秒将触发提醒，请做好准备。` 
+           }).catch(console.error);
+        }
+      }
     });
     updateLiveValues();
   });
@@ -345,7 +359,11 @@ async function startLockScreen(task) {
 
     if (lockScreenState.remaining <= 0) {
       clearInterval(lockInterval);
-      showLockConfirm();
+      if (settings.autoUnlock) {
+        endLockScreen();
+      } else {
+        showLockConfirm();
+      }
     }
   }, 1000);
 }
@@ -355,17 +373,32 @@ function showLockConfirm() {
   renderFullUI();
 }
 
-async function endLockScreen() {
+async function snoozeTask(minutes) {
+  if (lockScreenState.active && lockScreenState.task) {
+    const id = lockScreenState.task.id;
+    await invoke('timer_snooze_task', { taskId: id, minutes: parseInt(minutes) }).catch(console.error);
+    endLockScreen(true);
+  } else if (activePopup) {
+    const id = activePopup.id;
+    await invoke('timer_snooze_task', { taskId: id, minutes: parseInt(minutes) }).catch(console.error);
+    activePopup = null;
+    renderFullUI();
+  }
+}
+
+async function endLockScreen(snoozed = false) {
   lockScreenState.active = false;
   lockScreenState.waitingConfirm = false;
 
   // 通知后端锁屏模式结束
   invoke('timer_set_lock_screen_active', { active: false }).catch(console.error);
 
-  const id = lockScreenState.task?.id;
-  if (id === 'sit') stats.sitBreaks++;
-  if (id === 'water') stats.waterCups++;
-  saveStats();
+  if (!snoozed) {
+    const id = lockScreenState.task?.id;
+    if (id === 'sit') stats.sitBreaks++;
+    if (id === 'water') stats.waterCups++;
+    saveStats();
+  }
 
   try {
     await invoke('exit_lock_mode');
@@ -673,12 +706,36 @@ function renderFullUI() {
       </div>
       <div class="setting-row">
         <div class="setting-info">
+          <label>倒计时结束自动解锁</label>
+          <span class="setting-desc">休息结束后自动退出锁屏，无需手动确认</span>
+        </div>
+        <div class="toggle ${settings.autoUnlock ? 'active' : ''}" id="autoUnlockToggle"></div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label style="color:var(--danger, #ff4d4f);">严格模式</label>
+          <span class="setting-desc">开启后锁屏界面将隐藏“紧急解锁”按钮，请谨慎开启</span>
+        </div>
+        <div class="toggle ${settings.strictMode ? 'active' : ''}" id="strictModeToggle"></div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
           <label>空闲检测阈值</label>
           <span class="setting-desc">超过此时间无操作视为空闲${isIdle ? ' (当前空闲中)' : ''}</span>
         </div>
         <div class="idle-threshold-input-group">
           <input type="number" class="idle-threshold-input" id="idleThresholdInput" value="${Math.floor(settings.idleThreshold / 60)}" min="1" max="60">
           <span class="input-unit">分钟</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>提醒预告时间</label>
+          <span class="setting-desc">任务触发前多少秒发送通知提醒</span>
+        </div>
+        <div class="idle-threshold-input-group">
+          <input type="number" class="idle-threshold-input" id="preNotifyInput" value="${settings.preNotificationSeconds}" min="0" max="120">
+          <span class="input-unit">秒</span>
         </div>
       </div>
       <div class="setting-row">
@@ -717,7 +774,10 @@ function renderFullUI() {
         <div class="emoji">${activePopup ? (ICONS[activePopup.icon] || ICONS.bell) : ''}</div>
         <h2>${activePopup ? activePopup.title : ''}</h2>
         <p>${activePopup ? activePopup.desc : ''}</p>
-        <button class="btn btn-primary" id="dismissBtn">我知道了</button>
+        <div style="display:flex; justify-content:center; gap:10px;">
+          <button class="btn btn-primary" id="dismissBtn">我知道了</button>
+          <button class="btn btn-secondary" id="popupSnoozeBtn">推迟 5 分钟</button>
+        </div>
       </div>
     </div>
 
@@ -750,7 +810,7 @@ function renderFullUI() {
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
           已完成休息
         </button>
-        ` : `
+        ` : (settings.strictMode ? '' : `
         <button class="unlock-btn" id="unlockBtn">
           <div class="unlock-progress"></div>
           <div class="unlock-text">
@@ -758,7 +818,10 @@ function renderFullUI() {
             长按 3 秒紧急解锁
           </div>
         </button>
-        `}
+        <button id="lockSnoozeBtn" style="margin-top:15px; background:rgba(255,255,255,0.2); border:none; padding:8px 16px; border-radius:20px; color:white; font-size:14px; cursor:pointer;">
+          💤 推迟 5 分钟
+        </button>
+        `)}
       </div>
     </div>
 
@@ -816,6 +879,14 @@ function bindEvents() {
         el.classList.toggle('active', settings.lockScreenEnabled);
         saveSettings();
         renderFullUI();
+      } else if (el.id === 'autoUnlockToggle') {
+        settings.autoUnlock = !settings.autoUnlock;
+        el.classList.toggle('active', settings.autoUnlock);
+        saveSettings();
+      } else if (el.id === 'strictModeToggle') {
+        settings.strictMode = !settings.strictMode;
+        el.classList.toggle('active', settings.strictMode);
+        saveSettings();
       }
     });
   });
@@ -895,6 +966,16 @@ function bindEvents() {
   document.getElementById('resetBtn').onclick = resetAll;
   document.getElementById('dismissBtn').onclick = dismissNotification;
   
+  const popupSnoozeBtn = document.getElementById('popupSnoozeBtn');
+  if (popupSnoozeBtn) {
+    popupSnoozeBtn.onclick = () => snoozeTask(5);
+  }
+
+  const lockSnoozeBtn = document.getElementById('lockSnoozeBtn');
+  if (lockSnoozeBtn) {
+    lockSnoozeBtn.addEventListener('click', () => snoozeTask(5));
+  }
+  
   document.getElementById('testSoundBtn').onclick = () => {
     invoke('play_notification_sound').catch(e => console.error('Sound invoke failed:', e));
   };
@@ -943,6 +1024,17 @@ function bindEvents() {
         settings.idleThreshold = minutes * 60;  // 转换为秒
         saveSettings();
         await invoke('set_idle_threshold', { seconds: settings.idleThreshold }).catch(console.error);
+      }
+    });
+  }
+
+  const preNotifyInput = document.getElementById('preNotifyInput');
+  if (preNotifyInput) {
+    preNotifyInput.addEventListener('input', (e) => {
+      const seconds = parseInt(e.target.value);
+      if (seconds >= 0 && seconds <= 120) {
+        settings.preNotificationSeconds = seconds;
+        saveSettings();
       }
     });
   }

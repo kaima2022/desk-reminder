@@ -411,6 +411,20 @@ fn timer_reset_all() {
 }
 
 #[tauri::command]
+fn timer_snooze_task(task_id: String, minutes: u64) {
+    let mut state = get_timer_state().lock().unwrap();
+    if let Some(timer) = state.tasks.get_mut(&task_id) {
+        // 增加 reset_time，相当于推迟触发
+        timer.reset_time += Duration::from_secs(minutes * 60);
+        // 如果当前已经触发（triggered=true），需要重置状态以便重新计时？
+        // 如果是在锁屏界面点击 snooze，说明任务已经 triggered 并且正在展示
+        // 我们只需调整 reset_time，主循环会自动计算剩余时间
+        // 但需要把 triggered 设为 false，否则主循环会认为它还在触发状态
+        timer.triggered = false;
+    }
+}
+
+#[tauri::command]
 fn get_countdowns() -> Vec<CountdownInfo> {
     let state = get_timer_state().lock().unwrap();
     let now = Instant::now();
@@ -425,7 +439,7 @@ fn get_countdowns() -> Vec<CountdownInfo> {
             now
         };
 
-        let elapsed = effective_now.duration_since(timer.reset_time).as_secs();
+        let elapsed = effective_now.saturating_duration_since(timer.reset_time).as_secs();
         let remaining = if elapsed >= total_secs { 0 } else { total_secs - elapsed };
 
         CountdownInfo {
@@ -582,7 +596,7 @@ fn start_timer_thread(app_handle: AppHandle) {
                             continue;
                         }
 
-                        let elapsed = now.duration_since(timer.reset_time).as_secs();
+                        let elapsed = now.saturating_duration_since(timer.reset_time).as_secs();
                         let total_secs = timer.config.interval * 60;
 
                         if elapsed >= total_secs {
@@ -612,9 +626,45 @@ fn start_timer_thread(app_handle: AppHandle) {
                 let _ = app_handle.emit("idle-status-changed", current_idle_status.clone());
             }
 
-            // 每秒发送倒计时更新
+            // 发送倒计时更新
             let countdowns = get_countdowns();
             let _ = app_handle.emit("countdown-update", countdowns);
+
+            // ============= 锁屏看门狗 (Watchdog) =============
+            // 确保锁屏窗口始终置顶且聚焦，防止被最小化
+            let is_locked = get_timer_state().lock().unwrap().lock_screen_active;
+            if is_locked {
+                // 主窗口
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if !window.is_visible().unwrap_or(false) {
+                        let _ = window.show();
+                    }
+                    if !window.is_focused().unwrap_or(false) {
+                        let _ = window.set_focus();
+                    }
+                    let _ = window.set_always_on_top(true);
+                }
+
+                // 从属窗口
+                let lock_state = app_handle.state::<LockState>();
+                // 获取锁并克隆列表，尽快释放锁
+                let slave_windows: Vec<String> = {
+                    let guard = lock_state.0.lock().unwrap();
+                    guard.clone()
+                };
+                
+                for label in slave_windows {
+                    if let Some(window) = app_handle.get_webview_window(&label) {
+                        if !window.is_visible().unwrap_or(false) {
+                            let _ = window.show();
+                        }
+                        if !window.is_focused().unwrap_or(false) {
+                            let _ = window.set_focus();
+                        }
+                        let _ = window.set_always_on_top(true);
+                    }
+                }
+            }
         }
     });
 }
@@ -824,6 +874,7 @@ pub fn run() {
             timer_resume,
             timer_reset_task,
             timer_reset_all,
+            timer_snooze_task,
             get_countdowns,
             timer_set_system_locked,
             timer_set_lock_screen_active,
