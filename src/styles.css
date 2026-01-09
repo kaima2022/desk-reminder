@@ -100,12 +100,6 @@ body {
   right: 0;
   height: 2px;
   background: linear-gradient(90deg, var(--primary), var(--success), var(--primary));
-  background-size: 200% 100%;
-  animation: shimmer 3s infinite linear;
-}
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
 }
 .timer-ring {
   width: 180px;
@@ -126,7 +120,7 @@ body {
   stroke: var(--primary);
   stroke-width: 10;
   stroke-linecap: round;
-  transition: stroke-dashoffset 1s linear;
+  transition: stroke-dashoffset 0.2s linear;
 }
 .timer-ring .time-text {
   position: absolute;
@@ -631,9 +625,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(0, 0, 0, 0.9);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -668,7 +660,6 @@ body {
 
 .lock-timer-ring svg {
   transform: rotate(-90deg);
-  filter: drop-shadow(0 0 20px rgba(0, 122, 255, 0.4));
 }
 
 .lock-timer-ring .bg {
@@ -699,12 +690,6 @@ body {
   height: 48px;
   margin: 0 auto 8px;
   color: rgba(255, 255, 255, 0.9);
-  animation: breathe 2s ease-in-out infinite;
-}
-
-@keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: 0.9; }
-  50% { transform: scale(1.1); opacity: 1; }
 }
 
 .lock-timer-ring .lock-seconds {
@@ -788,30 +773,6 @@ body {
 
 .unlock-btn.pressing .unlock-text {
   color: white;
-}
-
-.lock-screen-particles {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.particle {
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  animation: float 6s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.3; }
-  50% { transform: translateY(-100px) rotate(180deg); opacity: 0.8; }
 }
 
 .setting-row .setting-info {

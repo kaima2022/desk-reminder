@@ -66,6 +66,12 @@ let isUpdating = false;
 let isCheckingUpdate = false;
 let updateMessage = null;
 
+let domCache = null;
+let isUiSuspended = false;
+let lastTrayTooltipText = '';
+let lastTrayTooltipUpdateAt = 0;
+const TRAY_TOOLTIP_MIN_INTERVAL_MS = 5000;
+
 // 同步任务配置到后端
 async function syncTasksToBackend() {
   const tasksForBackend = settings.tasks.map(t => ({
@@ -150,6 +156,16 @@ async function init() {
 
   renderFullUI();
 
+  isUiSuspended = document.hidden;
+  document.addEventListener('visibilitychange', () => {
+    isUiSuspended = document.hidden;
+    if (!isUiSuspended) {
+      cacheDomRefs();
+      updateLiveValues();
+      updateTrayTooltip(true);
+    }
+  });
+
   // 监听后端倒计时更新事件
   listen('countdown-update', (event) => {
     const updates = event.payload;
@@ -177,7 +193,11 @@ async function init() {
         }
       }
     });
-    updateLiveValues();
+    if (!isUiSuspended) {
+      updateLiveValues();
+    } else {
+      updateTrayTooltip();
+    }
   });
 
   // 监听后端任务触发事件
@@ -200,7 +220,11 @@ async function init() {
   listen('idle-status-changed', (event) => {
     const status = event.payload;
     isIdle = status.is_idle;
-    updateLiveValues();
+    if (!isUiSuspended) {
+      updateLiveValues();
+    } else {
+      updateTrayTooltip();
+    }
   });
 
   listen('show-window', () => {
@@ -560,6 +584,7 @@ function resetTask(id) {
     }
     // 通知后端重置该任务
     invoke('timer_reset_task', { taskId: id }).catch(console.error);
+    updateTrayTooltip(true);
     updateLiveValues();
   }
 }
@@ -586,6 +611,7 @@ function togglePause() {
     invoke('timer_resume').catch(console.error);
   }
   invoke('update_pause_menu', { paused: isPaused }).catch(() => {});
+  updateTrayTooltip(true);
   renderFullUI();
 }
 
@@ -601,6 +627,7 @@ function resetAll() {
   });
   isPaused = false;
   invoke('timer_resume').catch(console.error);
+  updateTrayTooltip(true);
   renderFullUI();
 }
 
@@ -619,22 +646,63 @@ function formatLockTime(seconds) {
   return { time: seconds, unit: '秒' };
 }
 
-function updateTrayTooltip() {
-  let lines = ['健康提醒助手'];
+function cacheDomRefs() {
+  domCache = {
+    statsValues: Array.from(document.querySelectorAll('.status-item .value')),
+    timerMinutes: document.querySelector('.time-text .minutes'),
+    timerSeconds: document.querySelector('.time-text .seconds'),
+    timerLabel: document.querySelector('.timer-label'),
+    mainRingProgress: document.querySelector('.timer-ring .progress'),
+    taskCards: new Map(),
+  };
+
+  document.querySelectorAll('.reminder-card[data-id]').forEach(card => {
+    domCache.taskCards.set(card.dataset.id, {
+      card,
+      miniProgress: card.querySelector('.progress-mini .progress'),
+      timeDisplay: card.querySelector('.time-remaining'),
+    });
+  });
+}
+
+function updateTrayTooltip(force = false) {
+  const now = Date.now();
+  if (!force && now - lastTrayTooltipUpdateAt < TRAY_TOOLTIP_MIN_INTERVAL_MS) {
+    return;
+  }
+
+  const lines = ['健康提醒助手'];
   if (isPaused) {
     lines.push('(已暂停)');
   } else {
     settings.tasks.forEach(t => {
       if (t.enabled) {
-        lines.push(`${t.title}：${formatTime(countdowns[t.id])}`);
+        lines.push(`${t.title}：${formatTime(countdowns[t.id] ?? 0)}`);
       }
     });
   }
-  invoke('update_tray_tooltip', { tooltip: lines.join('\n') }).catch(() => {});
+
+  const text = lines.join('\n');
+  if (!force && text === lastTrayTooltipText) {
+    return;
+  }
+
+  lastTrayTooltipText = text;
+  lastTrayTooltipUpdateAt = now;
+  invoke('update_tray_tooltip', { tooltip: text }).catch(() => {});
 }
 
 function updateLiveValues() {
-  const statsElements = document.querySelectorAll('.status-item .value');
+  if (isUiSuspended) {
+    updateTrayTooltip();
+    return;
+  }
+
+  if (!domCache) {
+    cacheDomRefs();
+  }
+
+  const statsElements = domCache.statsValues;
   if (statsElements[0]) statsElements[0].innerText = stats.sitBreaks;
   if (statsElements[1]) statsElements[1].innerText = stats.waterCups;
   if (statsElements[2]) statsElements[2].innerText = stats.workMinutes;
@@ -648,50 +716,53 @@ function updateLiveValues() {
     }
   });
 
-  const timerText = document.querySelector('.time-text');
-  if (timerText) {
+  if (domCache.timerMinutes && domCache.timerSeconds) {
     const timeStr = nextTask ? formatTime(countdowns[nextTask.id]) : '--:--';
-    timerText.querySelector('.minutes').innerText = timeStr.split(':')[0];
-    timerText.querySelector('.seconds').innerText = ':' + timeStr.split(':')[1];
+    const [mins, secs] = timeStr.split(':');
+    domCache.timerMinutes.innerText = mins;
+    domCache.timerSeconds.innerText = ':' + secs;
   }
 
-  const timerLabel = document.querySelector('.timer-label');
-  if (timerLabel) {
+  if (domCache.timerLabel) {
     let statusText = nextTask ? nextTask.title : '无活动任务';
     if (isPaused) {
       statusText += ' (已暂停)';
     } else if (isIdle) {
       statusText += ' (空闲中)';
     }
-    timerLabel.innerText = statusText;
+    domCache.timerLabel.innerText = statusText;
   }
 
-  const mainRing = document.querySelector('.timer-ring .progress');
-  if (mainRing && nextTask) {
+  if (domCache.mainRingProgress && nextTask) {
     const total = nextTask.interval * 60;
-    const offset = 502 * (1 - countdowns[nextTask.id] / total);
-    mainRing.style.strokeDashoffset = offset;
+    if (total > 0) {
+      const offset = 502 * (1 - (countdowns[nextTask.id] ?? 0) / total);
+      domCache.mainRingProgress.style.strokeDashoffset = offset;
+    }
   }
 
   settings.tasks.forEach(task => {
-    const card = document.querySelector(`.reminder-card[data-id="${task.id}"]`);
-    if (card) {
-      const current = countdowns[task.id] || 0;
-      const total = task.interval * 60;
+    const cardRefs = domCache.taskCards.get(task.id);
+    if (!cardRefs) return;
+
+    const current = countdowns[task.id] || 0;
+    const total = task.interval * 60;
+
+    if (cardRefs.miniProgress && total > 0) {
       const offset = 126 * (1 - current / total);
-      card.querySelector('.progress-mini .progress').style.strokeDashoffset = offset;
-      const timeDisplay = card.querySelector('.time-remaining');
-      if (timeDisplay) {
-        const snoozeState = snoozedStatus[task.id];
-        if (snoozeState && snoozeState.active) {
-          card.classList.add('snoozed'); // 动态添加样式类
-          timeDisplay.innerText = `推迟中: ${formatTime(current)}`;
-          timeDisplay.style.color = 'var(--warning)';
-        } else {
-          card.classList.remove('snoozed'); // 移除样式类
-          timeDisplay.innerText = `(${formatTime(current)})`;
-          timeDisplay.style.color = '';
-        }
+      cardRefs.miniProgress.style.strokeDashoffset = offset;
+    }
+
+    if (cardRefs.timeDisplay) {
+      const snoozeState = snoozedStatus[task.id];
+      if (snoozeState && snoozeState.active) {
+        cardRefs.card.classList.add('snoozed');
+        cardRefs.timeDisplay.innerText = `推迟中 ${formatTime(snoozeState.remaining)}`;
+        cardRefs.timeDisplay.style.color = 'var(--warning)';
+      } else {
+        cardRefs.card.classList.remove('snoozed');
+        cardRefs.timeDisplay.innerText = `(${formatTime(current)})`;
+        cardRefs.timeDisplay.style.color = '';
       }
     }
   });
@@ -900,9 +971,6 @@ function renderFullUI() {
     </div>
 
     <div class="lock-screen ${lockScreenState.active ? 'show' : ''}">
-      <div class="lock-screen-particles">
-        ${Array.from({length: 20}, (_, i) => `<div class="particle" style="left:${Math.random()*100}%; top:${Math.random()*100}%; animation-delay:${Math.random()*6}s;"></div>`).join('')}
-      </div>
       <div class="lock-screen-content">
         <div class="lock-timer-ring">
           <svg width="200" height="200" viewBox="0 0 200 200">
@@ -966,6 +1034,7 @@ function renderFullUI() {
     ` : ''}
   `;
 
+  cacheDomRefs();
   bindEvents();
   updateLiveValues();
 }
