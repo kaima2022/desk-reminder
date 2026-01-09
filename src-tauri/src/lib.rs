@@ -270,6 +270,12 @@ struct LockTaskArgs {
     desc: String,
     duration: i32,
     icon: String,
+    // Slave context
+    strict_mode: bool,
+    allow_strict_snooze: bool,
+    max_snooze_count: u32,
+    snooze_minutes: u32,
+    current_snooze_count: u32,
 }
 
 // ============= 定时器命令 =============
@@ -882,6 +888,11 @@ async fn enter_lock_mode(app: tauri::AppHandle, window: tauri::Window, state: St
                 .append_pair("desc", &t.desc)
                 .append_pair("duration", &t.duration.to_string())
                 .append_pair("icon", &t.icon)
+                .append_pair("strict_mode", &t.strict_mode.to_string())
+                .append_pair("allow_strict_snooze", &t.allow_strict_snooze.to_string())
+                .append_pair("max_snooze_count", &t.max_snooze_count.to_string())
+                .append_pair("snooze_minutes", &t.snooze_minutes.to_string())
+                .append_pair("current_snooze_count", &t.current_snooze_count.to_string())
                 .finish();
              url_str = format!("index.html?mode=lock_slave&{}", encoded);
         }

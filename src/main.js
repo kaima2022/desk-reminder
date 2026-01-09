@@ -98,7 +98,17 @@ async function init() {
     };
     const duration = parseInt(urlParams.get('duration') || '10');
 
+    // Parse slave settings
     settings.lockDuration = duration;
+    settings.strictMode = urlParams.get('strict_mode') === 'true';
+    settings.allowStrictSnooze = urlParams.get('allow_strict_snooze') === 'true';
+    settings.maxSnoozeCount = parseInt(urlParams.get('max_snooze_count') || '1');
+    
+    const taskSnoozeMinutes = parseInt(urlParams.get('snooze_minutes') || '5');
+    const currentSnoozeCount = parseInt(urlParams.get('current_snooze_count') || '0');
+    
+    task.snoozeMinutes = taskSnoozeMinutes;
+    snoozedStatus[task.id] = { count: currentSnoozeCount, active: false, remaining: 0 };
 
     lockScreenState = {
       active: true,
@@ -397,7 +407,12 @@ async function startLockScreen(task) {
         title: task.title,
         desc: task.desc,
         duration: lockDuration,
-        icon: task.icon
+        icon: task.icon,
+        strict_mode: settings.strictMode,
+        allow_strict_snooze: settings.allowStrictSnooze,
+        max_snooze_count: settings.maxSnoozeCount,
+        snooze_minutes: task.snoozeMinutes || 5,
+        current_snooze_count: (snoozedStatus[task.id]?.count || 0)
       }
     });
   } catch (e) {
