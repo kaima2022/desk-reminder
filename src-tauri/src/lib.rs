@@ -150,7 +150,28 @@ fn get_tray_text(key: &str, lang: &str) -> &'static str {
         ("resume", _) => "继续",
         ("tooltip", "en-US") => "Health Reminder",
         ("tooltip", _) => "健康提醒助手",
+        ("reset_submenu", "en-US") => "Reset Single Task",
+        ("reset_submenu", _) => "重置单个任务",
+        ("reset_prefix", "en-US") => "Reset: ",
+        ("reset_prefix", _) => "重置: ",
+        // 默认任务标题翻译
+        ("task_sit", "en-US") => "Stand Up Reminder",
+        ("task_sit", _) => "久坐提醒",
+        ("task_water", "en-US") => "Drink Water Reminder",
+        ("task_water", _) => "喝水提醒",
+        ("task_eye", "en-US") => "Eye Rest Reminder",
+        ("task_eye", _) => "护眼提醒",
         _ => "",
+    }
+}
+
+// 获取任务显示标题（默认任务使用翻译，自定义任务使用原标题）
+fn get_task_display_title<'a>(task_id: &str, original_title: &'a str, lang: &str) -> std::borrow::Cow<'a, str> {
+    match task_id {
+        "sit" => std::borrow::Cow::Borrowed(get_tray_text("task_sit", lang)),
+        "water" => std::borrow::Cow::Borrowed(get_tray_text("task_water", lang)),
+        "eye" => std::borrow::Cow::Borrowed(get_tray_text("task_eye", lang)),
+        _ => std::borrow::Cow::Borrowed(original_title),
     }
 }
 
@@ -331,24 +352,30 @@ fn rebuild_tray_menu(app: &AppHandle) {
     let state = get_timer_state().lock().unwrap();
     let is_paused = state.paused;
     let mut tasks: Vec<TaskConfig> = state.tasks.values().map(|t| t.config.clone()).collect();
-    tasks.sort_by(|a, b| a.id.cmp(&b.id)); 
+    tasks.sort_by(|a, b| a.id.cmp(&b.id));
     drop(state);
 
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>).unwrap();
-    let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>).unwrap();
-    let reset_all = MenuItem::with_id(app, "reset", "重置所有任务", true, None::<&str>).unwrap();
-    let pause = MenuItem::with_id(app, "pause", if is_paused { "继续" } else { "暂停" }, true, None::<&str>).unwrap();
+    // 获取当前语言
+    let lang = app.state::<LanguageState>().0.lock().unwrap().clone();
 
+    let quit = MenuItem::with_id(app, "quit", get_tray_text("quit", &lang), true, None::<&str>).unwrap();
+    let show = MenuItem::with_id(app, "show", get_tray_text("show", &lang), true, None::<&str>).unwrap();
+    let reset_all = MenuItem::with_id(app, "reset", get_tray_text("reset", &lang), true, None::<&str>).unwrap();
+    let pause_text = if is_paused { get_tray_text("resume", &lang) } else { get_tray_text("pause", &lang) };
+    let pause = MenuItem::with_id(app, "pause", pause_text, true, None::<&str>).unwrap();
+
+    let reset_prefix = get_tray_text("reset_prefix", &lang);
     let mut reset_items = Vec::new();
     for task in tasks {
         let id = format!("reset_task_{}", task.id);
-        let title = format!("重置: {}", task.title);
+        let display_title = get_task_display_title(&task.id, &task.title, &lang);
+        let title = format!("{}{}", reset_prefix, display_title);
         let item = MenuItem::with_id(app, &id, &title, true, None::<&str>).unwrap();
         reset_items.push(item);
     }
-    
+
     let reset_refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = reset_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
-    let reset_submenu = Submenu::with_items(app, "重置单个任务", true, &reset_refs).unwrap();
+    let reset_submenu = Submenu::with_items(app, get_tray_text("reset_submenu", &lang), true, &reset_refs).unwrap();
 
     let menu = Menu::with_items(app, &[
         &show, 
@@ -928,11 +955,14 @@ fn update_tray_language(app: AppHandle, lang_state: State<LanguageState>, langua
     // 更新语言状态
     *lang_state.0.lock().unwrap() = language.clone();
 
-    // 由于 Tauri 菜单项需要重新构建才能完全更新，
-    // 这里只更新暂停菜单项（最常变化的）
-    // 其他菜单项会在下次启动时使用新语言
-    if let Some(pause_menu) = app.state::<PauseMenuState>().0.lock().unwrap().as_ref() {
-        let _ = pause_menu.set_text(get_tray_text("pause", &language));
+    // 重新构建托盘菜单以应用新语言
+    rebuild_tray_menu(&app);
+
+    // 更新托盘提示文本
+    let tray_state = app.state::<TrayState>();
+    let guard = tray_state.0.lock().unwrap();
+    if let Some(tray) = guard.as_ref() {
+        let _ = tray.set_tooltip(Some(get_tray_text("tooltip", &language)));
     }
 }
 

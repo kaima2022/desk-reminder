@@ -6,7 +6,7 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.5.3-orange?style=flat-square)](https://github.com/)
+[![Version](https://img.shields.io/badge/Version-1.5.4-orange?style=flat-square)](https://github.com/)
 
 在快节奏的数字时代，健康的身体是高效生产力的基石。**健康办公助手** 是一款基于 Rust 与 Tauri 开发的高性能桌面应用，旨在通过智能化的任务排程与多维提醒，帮助你在专注工作的同时，科学地进行久坐、补水与用眼休息。
 
@@ -152,6 +152,12 @@ npm run tauri build
 
 > #### scoop 更新命令
 > scoop update health-reminder
+
+### v1.5.4 (2026-01-10)
+- **国际化支持 (i18n)**：新增中英文语言切换功能，界面右上角可快速切换语言
+- **多语言托盘菜单**：托盘右键菜单支持中英文实时切换
+- **多屏锁屏语言同步**：修复副屏锁屏显示语言与主屏不一致的问题
+- **英文 README**：新增 [README.en.md](./README.en.md) 英文文档
 
 ### v1.5.3 (2026-01-09)
 - **锁屏保活与修复**：修复了 Windows 10 下强制锁屏窗口可能被最小化或丢失焦点的问题（Watchdog 机制）。

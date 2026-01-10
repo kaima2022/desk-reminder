@@ -151,6 +151,8 @@ async function init() {
     settings.language = detectLocale();
     setLocale(settings.language);
   }
+  // 通知后端更新托盘菜单语言（确保启动时托盘菜单语言与界面一致）
+  invoke('update_tray_language', { language: settings.language }).catch(() => {});
 
   try {
     settings.autoStart = await isEnabled();
@@ -416,8 +418,8 @@ async function startLockScreen(task) {
     await invoke('show_main_window');
     await invoke('enter_lock_mode', {
       task: {
-        title: task.title,
-        desc: task.desc,
+        title: getTaskDisplayTitle(task),
+        desc: getTaskDisplayDesc(task),
         duration: parseInt(lockDuration),
         icon: task.icon,
         strict_mode: !!settings.strictMode,
