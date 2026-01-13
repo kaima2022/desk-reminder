@@ -6,7 +6,7 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.5.5-orange?style=flat-square)](https://github.com/)
+[![Version](https://img.shields.io/badge/Version-1.5.6-orange?style=flat-square)](https://github.com/)
 
 在快节奏的数字时代，健康的身体是高效生产力的基石。**健康办公助手** 是一款基于 Rust 与 Tauri 开发的高性能桌面应用，旨在通过智能化的任务排程与多维提醒，帮助你在专注工作的同时，科学地进行久坐、补水与用眼休息。
 
@@ -152,6 +152,9 @@ npm run tauri build
 
 > #### scoop 更新命令
 > scoop update health-reminder
+
+### v1.5.6 (2026-01-13)
+- **Bug 修复**：修复了界面最小化时可能导致锁屏功能异常的问题。
 
 ### v1.5.5 (2026-01-13)
 - **macOS 修复**：修复了点击 Dock 栏图标无法唤起主窗口的问题。

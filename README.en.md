@@ -6,7 +6,7 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://tauri.app/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.5.5-orange?style=flat-square)](https://github.com/)
+[![Version](https://img.shields.io/badge/Version-1.5.6-orange?style=flat-square)](https://github.com/)
 
 In today's fast-paced digital era, a healthy body is the cornerstone of high productivity. **Health Reminder** is a high-performance desktop application built with Rust and Tauri, designed to help you take breaks from sitting, stay hydrated, and rest your eyes through intelligent task scheduling and multi-dimensional reminders.
 
@@ -152,6 +152,9 @@ npm run tauri build
 
 > #### Scoop update command
 > scoop update health-reminder
+
+### v1.5.6 (2026-01-13)
+- **Bug Fixes**: Fixed an issue where the lock screen might malfunction when the interface is minimized.
 
 ### v1.5.5 (2026-01-13)
 - **macOS Fix**: Fixed an issue where clicking the Dock icon would not restore the main window.

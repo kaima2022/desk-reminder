@@ -1,6 +1,6 @@
 [package]
 name = "health-reminder"
-version = "1.5.5"
+version = "1.5.6"
 description = "健康提醒助手 - 久坐、喝水、护眼提醒"
 authors = ["you"]
 edition = "2021"
