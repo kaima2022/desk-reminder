@@ -41,6 +41,8 @@ let settings = {
   advancedSettingsOpen: false, // 高级设置展开状态
   maxSnoozeCount: 1,   // 最大推迟次数
   allowStrictSnooze: false, // 严格模式下是否允许推迟
+  enableMerge: false,  // 是否合并临近任务
+  mergeThreshold: 60,  // 合并阈值（秒）
   language: 'zh-CN',   // 界面语言
 };
 
@@ -388,27 +390,51 @@ async function triggerNotification(task) {
   if (settings.soundEnabled) {
     invoke('play_notification_sound').catch(() => {});
   }
-  invoke('show_notification', { title: getTaskDisplayTitle(task), body: getTaskDisplayDesc(task) }).catch(console.error);
+  
+  // 计算合并的任务
+  let mergedTasks = [task];
+  if (settings.enableMerge) {
+    settings.tasks.forEach(t => {
+      if (t.id !== task.id && t.enabled) {
+        const remaining = countdowns[t.id];
+        // 如果剩余时间小于阈值，且没有正在推迟（或者推迟了但也快到了，这里简单起见只看remaining）
+        // 注意：countdowns可能会有延迟，但通常是准的
+        if (remaining !== undefined && remaining <= settings.mergeThreshold) {
+          mergedTasks.push(t);
+        }
+      }
+    });
+  }
+
+  // 构建显示标题和描述
+  // 如果有合并任务，可以在这里修改标题或描述，或者保持原样
+  // 更新：现在使用合并的标题
+  const mergedTaskIds = mergedTasks.map(t => t.id);
+  const displayTitle = getMergedDisplayTitle(mergedTaskIds);
+  
+  invoke('show_notification', { title: displayTitle, body: getTaskDisplayDesc(task) }).catch(console.error);
 
   if (settings.lockScreenEnabled) {
-    await startLockScreen(task);
+    await startLockScreen(task, mergedTasks);
   } else {
-    activePopup = { ...task };
+    activePopup = { ...task, mergedTaskIds: mergedTasks.map(t => t.id) };
     renderFullUI();
   }
 }
 
-async function startLockScreen(task) {
+async function startLockScreen(task, mergedTasks = []) {
   // 通知后端锁屏模式激活
   invoke('timer_set_lock_screen_active', { active: true }).catch(console.error);
 
   // 使用任务级别的锁屏时长，如果没有则使用全局设置
   const lockDuration = task.lockDuration || settings.lockDuration;
+  const mergedIds = mergedTasks.length > 0 ? mergedTasks.map(t => t.id) : [task.id];
 
   lockScreenState = {
     active: true,
     remaining: lockDuration,
     task: { ...task },
+    mergedTaskIds: mergedIds,
     unlockProgress: 0,
     unlockTimer: null,
     waitingConfirm: false,
@@ -418,8 +444,8 @@ async function startLockScreen(task) {
     await invoke('show_main_window');
     await invoke('enter_lock_mode', {
       task: {
-        title: getTaskDisplayTitle(task),
-        desc: getTaskDisplayDesc(task),
+        title: getMergedDisplayTitle(mergedIds),
+        desc: getMergedDisplayDesc(mergedIds),
         duration: parseInt(lockDuration),
         icon: task.icon,
         strict_mode: !!settings.strictMode,
@@ -461,13 +487,37 @@ function showLockConfirm() {
 }
 
 async function snoozeTask(minutes) {
+  const idsToSnooze = [];
+  
   if (lockScreenState.active && lockScreenState.task) {
-    const id = lockScreenState.task.id;
+    if (lockScreenState.mergedTaskIds && lockScreenState.mergedTaskIds.length > 0) {
+      idsToSnooze.push(...lockScreenState.mergedTaskIds);
+    } else {
+      idsToSnooze.push(lockScreenState.task.id);
+    }
+  } else if (activePopup) {
+    if (activePopup.mergedTaskIds && activePopup.mergedTaskIds.length > 0) {
+      idsToSnooze.push(...activePopup.mergedTaskIds);
+    } else {
+      idsToSnooze.push(activePopup.id);
+    }
+  }
+
+  // 去重
+  const uniqueIds = [...new Set(idsToSnooze)];
+
+  for (const id of uniqueIds) {
     await invoke('timer_snooze_task', { taskId: id, minutes: parseInt(minutes) }).catch(console.error);
+  }
+  
+  // 从队列中移除这些已推迟的任务，防止它们作为新弹窗出现
+  if (uniqueIds.length > 0) {
+    taskQueue = taskQueue.filter(t => !uniqueIds.includes(t.id));
+  }
+
+  if (lockScreenState.active) {
     endLockScreen(true);
   } else if (activePopup) {
-    const id = activePopup.id;
-    await invoke('timer_snooze_task', { taskId: id, minutes: parseInt(minutes) }).catch(console.error);
     activePopup = null;
     renderFullUI();
   }
@@ -481,10 +531,18 @@ async function endLockScreen(snoozed = false) {
   invoke('timer_set_lock_screen_active', { active: false }).catch(console.error);
 
   if (!snoozed) {
-    const id = lockScreenState.task?.id;
-    if (id === 'sit') stats.sitBreaks++;
-    if (id === 'water') stats.waterCups++;
-    if (id) resetTask(id);
+    // 重置所有合并的任务
+    const idsToReset = lockScreenState.mergedTaskIds || (lockScreenState.task ? [lockScreenState.task.id] : []);
+    
+    // 从队列中移除已合并的任务，防止解锁后再次弹窗
+    taskQueue = taskQueue.filter(t => !idsToReset.includes(t.id));
+
+    idsToReset.forEach(id => {
+      if (id === 'sit') stats.sitBreaks++;
+      if (id === 'water') stats.waterCups++;
+      resetTask(id);
+    });
+    
     saveStats();
   }
 
@@ -575,11 +633,19 @@ function dismissNotification() {
   if (!activePopup) return;
   
   // 点击“我知道了”仅记录统计数据，不再负责计时重置（重置已在触发时提前完成）
-  const id = activePopup.id;
-  if (id === 'sit') stats.sitBreaks++;
-  if (id === 'water') stats.waterCups++;
+  // 修正：上面的注释是旧的，现在改为在此处重置（或在触发时重置，看逻辑）
+  // 根据新逻辑，我们在结束时重置
   
-  resetTask(id);
+  const idsToReset = activePopup.mergedTaskIds || [activePopup.id];
+  
+  // 从队列中移除已合并的任务
+  taskQueue = taskQueue.filter(t => !idsToReset.includes(t.id));
+
+  idsToReset.forEach(id => {
+    if (id === 'sit') stats.sitBreaks++;
+    if (id === 'water') stats.waterCups++;
+    resetTask(id);
+  });
   
   activePopup = null;
   saveStats();
@@ -695,6 +761,36 @@ function getTaskDisplayDesc(task) {
     return t(`tasks.${task.id}.desc`);
   }
   return task.desc;
+}
+
+function getMergedDisplayTitle(taskIds) {
+  if (!taskIds || taskIds.length === 0) return '';
+  // 去重
+  const uniqueIds = [...new Set(taskIds)];
+  const titles = uniqueIds.map(id => {
+    const task = settings.tasks.find(t => t.id === id);
+    return task ? getTaskDisplayTitle(task) : '';
+  }).filter(t => t);
+  
+  return titles.join(' & ');
+}
+
+// 获取合并任务的描述（如果是默认任务，显示默认的休息文案，否则组合显示）
+function getMergedDisplayDesc(taskIds) {
+  if (!taskIds || taskIds.length === 0) return '';
+  // 如果包含了默认任务，优先显示通用的休息文案
+  if (taskIds.some(id => ['sit', 'water', 'eye'].includes(id))) {
+    return t('lockScreen.restMessage');
+  }
+  
+  // 否则组合显示描述
+  const uniqueIds = [...new Set(taskIds)];
+  const descs = uniqueIds.map(id => {
+    const task = settings.tasks.find(t => t.id === id);
+    return task ? getTaskDisplayDesc(task) : '';
+  }).filter(t => t);
+  
+  return descs.join('; ');
 }
 
 function cacheDomRefs() {
@@ -971,6 +1067,25 @@ function renderFullUI() {
 
         <div class="setting-row">
           <div class="setting-info">
+            <label>${t('settings.enableMerge')}</label>
+            <span class="setting-desc">${t('settings.enableMergeDesc')}</span>
+          </div>
+          <div class="toggle ${settings.enableMerge ? 'active' : ''}" id="enableMergeToggle"></div>
+        </div>
+
+        <div class="setting-row" id="mergeThresholdRow" style="display: ${settings.enableMerge ? 'flex' : 'none'};">
+          <div class="setting-info">
+            <label>${t('settings.mergeThreshold')}</label>
+            <span class="setting-desc">${t('settings.mergeThresholdDesc')}</span>
+          </div>
+          <div class="idle-threshold-input-group">
+            <input type="number" class="idle-threshold-input" id="mergeThresholdInput" value="${settings.mergeThreshold}" min="5" max="300">
+            <span class="input-unit">${t('time.seconds')}</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
             <label>${t('settings.idleThreshold')}</label>
             <span class="setting-desc">${isIdle ? t('settings.idleThresholdDescIdle') : t('settings.idleThresholdDesc')}</span>
           </div>
@@ -1029,8 +1144,8 @@ function renderFullUI() {
     <div class="notification-popup ${activePopup ? 'show' : ''}">
       <div class="notification-content">
         <div class="emoji">${activePopup ? (ICONS[activePopup.icon] || ICONS.bell) : ''}</div>
-        <h2>${activePopup ? getTaskDisplayTitle(activePopup) : ''}</h2>
-        <p>${activePopup ? getTaskDisplayDesc(activePopup) : ''}</p>
+        <h2>${activePopup ? (activePopup.mergedTaskIds ? getMergedDisplayTitle(activePopup.mergedTaskIds) : getTaskDisplayTitle(activePopup)) : ''}</h2>
+        <p>${activePopup ? (activePopup.mergedTaskIds ? getMergedDisplayDesc(activePopup.mergedTaskIds) : getTaskDisplayDesc(activePopup)) : ''}</p>
         <div style="display:flex; justify-content:center; gap:10px;">
           <button class="btn btn-primary" id="dismissBtn">${t('buttons.gotIt')}</button>
           ${(() => {
@@ -1064,8 +1179,8 @@ function renderFullUI() {
             <div class="lock-unit">${lockScreenState.waitingConfirm ? t('buttons.confirmRest').split(' ')[0] : formatLockTime(lockScreenState.remaining).unit}</div>
           </div>
         </div>
-        <div class="lock-title">${lockScreenState.waitingConfirm ? t('lockScreen.timeUp') : (lockScreenState.task ? getTaskDisplayTitle(lockScreenState.task) : t('lockScreen.restTime'))}</div>
-        <div class="lock-message">${lockScreenState.waitingConfirm ? t('lockScreen.confirmMessage') : (lockScreenState.task ? getTaskDisplayDesc(lockScreenState.task) : t('lockScreen.restMessage'))}</div>
+        <div class="lock-title">${lockScreenState.waitingConfirm ? t('lockScreen.timeUp') : (lockScreenState.task ? (lockScreenState.mergedTaskIds ? getMergedDisplayTitle(lockScreenState.mergedTaskIds) : getTaskDisplayTitle(lockScreenState.task)) : t('lockScreen.restTime'))}</div>
+        <div class="lock-message">${lockScreenState.waitingConfirm ? t('lockScreen.confirmMessage') : (lockScreenState.task ? (lockScreenState.mergedTaskIds ? getMergedDisplayDesc(lockScreenState.mergedTaskIds) : getTaskDisplayDesc(lockScreenState.task)) : t('lockScreen.restMessage'))}</div>
         ${lockScreenState.waitingConfirm ? `
         <button class="confirm-btn" id="confirmBtn">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1172,6 +1287,11 @@ function bindEvents() {
       } else if (el.id === 'allowStrictSnoozeToggle') {
         settings.allowStrictSnooze = !settings.allowStrictSnooze;
         el.classList.toggle('active', settings.allowStrictSnooze);
+        saveSettings();
+        renderFullUI();
+      } else if (el.id === 'enableMergeToggle') {
+        settings.enableMerge = !settings.enableMerge;
+        el.classList.toggle('active', settings.enableMerge);
         saveSettings();
         renderFullUI();
       }
@@ -1375,6 +1495,17 @@ function bindEvents() {
       saveSettings();
       renderFullUI();
     };
+  }
+
+  const mergeThresholdInput = document.getElementById('mergeThresholdInput');
+  if (mergeThresholdInput) {
+    mergeThresholdInput.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      if (val >= 5) {
+        settings.mergeThreshold = val;
+        saveSettings();
+      }
+    });
   }
 
   const maxSnoozeCountInput = document.getElementById('maxSnoozeCountInput');
